@@ -7,6 +7,7 @@ using KernelDensity
 using ProgressMeter
 using Reexport
 using Requires
+using Zygote
 
 @reexport using StaticArrays
 

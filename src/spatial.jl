@@ -43,3 +43,7 @@ function adjust_bounds(c::Real, box_size::Real)
     end
     return c
 end
+
+adjust_bounds_vec(v, bs) = adjust_bounds.(v, bs)
+
+square_distance(i, j, coords, box_size) = sum(abs2, vector(coords[i], coords[j], box_size))

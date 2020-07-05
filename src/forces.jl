@@ -60,6 +60,40 @@ function force! end
     return nothing
 end
 
+@inbounds function force(coords,
+                            i::Integer,
+                            j::Integer,
+                            inter,
+                            s::Simulation,
+                            neighbours)
+    if neighbours == 1.0
+        return force(coords, i, j, inter, s)
+    else
+        return zeros(SVector{3})
+    end
+end
+
+@inbounds function force(coords,
+                            i::Integer,
+                            j::Integer,
+                            inter::LennardJones,
+                            s::Simulation)
+    i == j && return zeros(SVector{3})
+    if s.atoms[i].σ == 0.0 || s.atoms[j].σ == 0.0
+        return zeros(SVector{3})
+    end
+    σ = sqrt(s.atoms[i].σ * s.atoms[j].σ)
+    ϵ = sqrt(s.atoms[i].ϵ * s.atoms[j].ϵ)
+    dr = vector1D.(coords[i], coords[j], s.box_size)
+    r2 = sum(abs2, dr)
+    r2 > sqdist_cutoff_nb && return zeros(SVector{3})
+    invr2 = inv(r2)
+    six_term = (σ ^ 2 * invr2) ^ 3
+    # Limit this to 100 as a fudge to stop it exploding
+    f = min((24ϵ * invr2) * (2 * six_term ^ 2 - six_term), 100.0)
+    return f * dr
+end
+
 """
     SoftSphere(nl_only)
 
@@ -163,6 +197,15 @@ function force!(forces,
     forces[b.i] += f
     forces[b.j] -= f
     return nothing
+end
+
+function force(coords,
+                b::HarmonicBond,
+                s::Simulation)
+    ab = vector(coords[b.i], coords[b.j], s.box_size)
+    c = b.kb * (norm(ab) - b.b0)
+    f = c * normalize(ab)
+    return [b.i, b.j], [f, -f]
 end
 
 """

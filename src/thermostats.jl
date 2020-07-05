@@ -4,6 +4,9 @@ export
     NoThermostat,
     apply_thermostat!,
     AndersenThermostat,
+    RescaleThermostat,
+    BerendsenThermostat,
+    FrictionThermostat,
     velocity,
     maxwellboltzmann,
     temperature
@@ -21,8 +24,8 @@ struct NoThermostat <: Thermostat end
 Apply a thermostat to modify a simulation.
 Custom thermostats should implement this function.
 """
-function apply_thermostat!(s::Simulation, ::NoThermostat)
-    return s
+function apply_thermostat!(velocities, s::Simulation, ::NoThermostat)
+    return velocities
 end
 
 """
@@ -43,6 +46,36 @@ function apply_thermostat!(s::Simulation, thermostat::AndersenThermostat)
         end
     end
     return s
+end
+
+struct RescaleThermostat{T} <: Thermostat
+    target_temp::T
+end
+
+function apply_thermostat!(velocities, s, thermostat::RescaleThermostat)
+    velocities *= sqrt(thermostat.target_temp / temperature(velocities, s))
+    return velocities
+end
+
+struct BerendsenThermostat{T} <: Thermostat
+    target_temp::T
+    coupling_const::T
+end
+
+function apply_thermostat!(velocities, s, thermostat::BerendsenThermostat)
+    λ2 = 1 + (s.timestep / thermostat.coupling_const) * (
+                (thermostat.target_temp / temperature(velocities, s)) - 1)
+    velocities *= sqrt(λ2)
+    return velocities
+end
+
+struct FrictionThermostat{T} <: Thermostat
+    friction_const::T
+end
+
+function apply_thermostat!(velocities, s, thermostat::FrictionThermostat)
+    velocities *= thermostat.friction_const
+    return velocities
 end
 
 """
@@ -73,6 +106,8 @@ function maxwellboltzmann(mass::Real, temp::Real)
     return maxwellboltzmann(DefaultFloat, mass, temp)
 end
 
+svdot(v::SVector) = sum(v .* v)
+
 """
     temperature(simulation)
 
@@ -81,5 +116,11 @@ Calculate the temperature of a system from the kinetic energy of the atoms.
 function temperature(s::Simulation)
     ke = sum([a.mass * dot(s.velocities[i], s.velocities[i]) for (i, a) in enumerate(s.atoms)]) / 2
     df = 3 * length(s.coords) - 3
+    return 2 * ke / df
+end
+
+function temperature(velocities, s::Simulation)
+    ke = sum(svdot.(velocities) .* getproperty.(s.atoms, :mass) / 2)
+    df = 3 * length(velocities) - 3
     return 2 * ke / df
 end

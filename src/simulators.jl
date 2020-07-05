@@ -12,59 +12,27 @@ export
 Calculate the accelerations of all atoms using the general and specific
 interactions and Newton's second law.
 """
-function accelerations(s::Simulation, neighbours; parallel::Bool=true)
-    n_atoms = length(s.coords)
+function accelerations(coords, s::Simulation, neighbours, is, js; parallel::Bool=true)
+    n_atoms = length(coords)
+    forces = zero(coords)
 
-    if parallel && nthreads() > 1 && n_atoms >= 100
-        forces_threads = [zero(s.coords) for i in 1:nthreads()]
-
-        # Loop over interactions and calculate the acceleration due to each
-        for inter in values(s.general_inters)
-            if inter.nl_only
-                @threads for ni in 1:length(neighbours)
-                    i, j = neighbours[ni]
-                    force!(forces_threads[threadid()], inter, s, i, j)
-                end
-            else
-                @threads for i in 1:n_atoms
-                    for j in 1:i
-                        force!(forces_threads[threadid()], inter, s, i, j)
-                    end
-                end
-            end
-        end
-
-        forces = sum(forces_threads)
-    else
-        forces = zero(s.coords)
-
-        for inter in values(s.general_inters)
-            if inter.nl_only
-                for ni in 1:length(neighbours)
-                    i, j = neighbours[ni]
-                    force!(forces, inter, s, i, j)
-                end
-            else
-                for i in 1:n_atoms
-                    for j in 1:i
-                        force!(forces, inter, s, i, j)
-                    end
-                end
-            end
+    for inter in values(s.general_inters)
+        if inter.nl_only
+            forces -= reshape(sum(
+                        force.((coords,), is, js, (inter,), (s,), neighbours), dims=2), n_atoms)
+        else
+            forces -= reshape(sum(
+                        force.((coords,), is, js, (inter,), (s,)), dims=2), n_atoms)
         end
     end
 
     for inter_list in values(s.specific_inter_lists)
         for inter in inter_list
-            force!(forces, inter, s)
+            #force!(forces, inter, s)
         end
     end
 
-    for i in 1:n_atoms
-        forces[i] /= s.atoms[i].mass
-    end
-
-    return forces
+    return forces ./ getproperty.(s.atoms, :mass)
 end
 
 """
@@ -89,37 +57,39 @@ function simulate!(s::Simulation,
     # See https://www.saylor.org/site/wp-content/uploads/2011/06/MA221-6.1.pdf for
     #   integration algorithm - used shorter second version
     n_atoms = length(s.coords)
-    neighbours = find_neighbours(s, nothing, s.neighbour_finder, 0,
-                                    parallel=parallel)
-    accels_t = accelerations(s, neighbours, parallel=parallel)
+    is = hcat([collect(1:n_atoms) for i in 1:n_atoms]...)
+    js = permutedims(is, (2, 1))
+    coords, velocities = s.coords, s.velocities
+    neighbours = find_neighbours(coords, s.box_size, zeros(n_atoms, n_atoms),
+                                    is, js, s.neighbour_finder, 0, parallel=parallel)
+    accels_t = accelerations(coords, s, neighbours, is, js, parallel=parallel)
     accels_t_dt = zero(s.coords)
 
-    @showprogress for step_n in 1:n_steps
-        for logger in values(s.loggers)
-            log_property!(logger, s, step_n)
+    for step_n in 1:n_steps
+        Zygote.ignore() do
+            s.coords[1:end] = coords[1:end]
+            s.velocities[1:end] = velocities[1:end]
+            for logger in values(s.loggers)
+                log_property!(logger, s, step_n)
+            end
         end
 
-        # Update coordinates
-        for i in 1:length(s.coords)
-            s.coords[i] += s.velocities[i] * s.timestep + accels_t[i] * (s.timestep ^ 2) / 2
-            s.coords[i] = adjust_bounds.(s.coords[i], s.box_size)
-        end
+        coords += velocities * s.timestep + 0.5 * accels_t * s.timestep ^ 2
+        coords = adjust_bounds_vec.(coords, s.box_size)
+        accels_t_dt = accelerations(coords, s, neighbours, is, js, parallel=parallel)
+        velocities += 0.5 * (accels_t + accels_t_dt) * s.timestep
 
-        accels_t_dt = accelerations(s, neighbours, parallel=parallel)
-
-        # Update velocities
-        for i in 1:length(s.velocities)
-            s.velocities[i] += (accels_t[i] + accels_t_dt[i]) * s.timestep / 2
-        end
-
-        apply_thermostat!(s, s.thermostat)
-        neighbours = find_neighbours(s, neighbours, s.neighbour_finder, step_n,
+        velocities = apply_thermostat!(velocities, s, s.thermostat)
+        neighbours = find_neighbours(coords, s.box_size, neighbours,
+                                        is, js, s.neighbour_finder, step_n,
                                         parallel=parallel)
 
         accels_t = accels_t_dt
-        s.n_steps_made[1] += 1
+        Zygote.ignore() do
+            s.n_steps_made[1] += 1
+        end
     end
-    return s
+    return coords
 end
 
 """
@@ -136,32 +106,37 @@ function simulate!(s::Simulation,
                     n_steps::Integer;
                     parallel::Bool=true)
     n_atoms = length(s.coords)
-    neighbours = find_neighbours(s, nothing, s.neighbour_finder, 0,
-                                    parallel=parallel)
-    coords_last = s.velocities
+    is = hcat([collect(1:n_atoms) for i in 1:n_atoms]...)
+    js = permutedims(is, (2, 1))
+    coords, coords_last = s.coords, s.velocities
+    neighbours = find_neighbours(coords, s.box_size, zeros(n_atoms, n_atoms),
+                                    is, js, s.neighbour_finder, 0, parallel=parallel)
 
-    @showprogress for step_n in 1:n_steps
-        for logger in values(s.loggers)
-            log_property!(logger, s, step_n)
+    for step_n in 1:n_steps
+        Zygote.ignore() do
+            s.coords[1:end] = coords[1:end]
+            s.velocities[1:end] = velocities[1:end]
+            for logger in values(s.loggers)
+                log_property!(logger, s, step_n)
+            end
         end
 
-        accels_t = accelerations(s, neighbours, parallel=parallel)
-
-        # Update coordinates
-        coords_copy = s.coords
-        for i in 1:length(s.coords)
-            s.coords[i] = 2 * s.coords[i] - coords_last[i] + accels_t[i] * s.timestep ^ 2
-            s.coords[i] = adjust_bounds.(s.coords[i], s.box_size)
-        end
+        accels_t = accelerations(coords, s, neighbours, is, js, parallel=parallel)
+        coords_copy = coords
+        coords += vector.(coords_last, coords, s.box_size) + accels_t * s.timestep ^ 2
+        coords = adjust_bounds_vec.(coords, s.box_size)
         coords_last = coords_copy
 
-        apply_thermostat!(s, s.thermostat)
-        neighbours = find_neighbours(s, neighbours, s.neighbour_finder, step_n,
+        #velocities = apply_thermostat!(velocities, s, s.thermostat)
+        neighbours = find_neighbours(coords, s.box_size, neighbours,
+                                        is, js, s.neighbour_finder, step_n,
                                         parallel=parallel)
 
-        s.n_steps_made[1] += 1
+        Zygote.ignore() do
+            s.n_steps_made[1] += 1
+        end
     end
-    return s
+    return coords
 end
 
 function simulate!(s::Simulation, n_steps::Integer; parallel::Bool=true)
