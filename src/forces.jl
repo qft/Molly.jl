@@ -69,7 +69,7 @@ end
     if neighbours == 1.0
         return force(coords, i, j, inter, s)
     else
-        return zeros(SVector{3})
+        return zero(coords[1])
     end
 end
 
@@ -78,15 +78,15 @@ end
                             j::Integer,
                             inter::LennardJones,
                             s::Simulation)
-    i == j && return zeros(SVector{3})
+    i == j && return zero(coords[1])
     if s.atoms[i].σ == 0.0 || s.atoms[j].σ == 0.0
-        return zeros(SVector{3})
+        return zero(coords[1])
     end
     σ = sqrt(s.atoms[i].σ * s.atoms[j].σ)
     ϵ = sqrt(s.atoms[i].ϵ * s.atoms[j].ϵ)
     dr = vector1D.(coords[i], coords[j], s.box_size)
     r2 = sum(abs2, dr)
-    r2 > sqdist_cutoff_nb && return zeros(SVector{3})
+    r2 > sqdist_cutoff_nb && return zero(coords[1])
     invr2 = inv(r2)
     six_term = (σ ^ 2 * invr2) ^ 3
     # Limit this to 100 as a fudge to stop it exploding

@@ -187,3 +187,14 @@ function Base.show(io::IO, s::Simulation)
                 typeof(s.simulator), " simulator, ", s.timestep, " timestep, ",
                 s.n_steps, " steps, ", first(s.n_steps_made), " steps made")
 end
+
+# Required for differentiable specific interactions
+Zygote.@adjoint function SparseArrays.SparseVector{T, U}(l, is, vs) where {T, U}
+    return SparseVector{T, U}(l, is, vs), x -> begin
+        if isa(x, SparseVector)
+            return (x.n, x.nzind, x.nzval)
+        else
+            return (length(x), collect(1:length(x)), x)
+        end
+    end
+end

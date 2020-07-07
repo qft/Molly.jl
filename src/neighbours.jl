@@ -20,10 +20,13 @@ struct NoNeighbourFinder <: NeighbourFinder end
 Obtain a list of close atoms in a system.
 Custom neighbour finders should implement this function.
 """
-function find_neighbours(s::Simulation,
+function find_neighbours(coords,
+                            box_size,
                             current_neighbours,
-                            ::NoNeighbourFinder,
-                            ::Integer;
+                            is,
+                            js,
+                            nf::NoNeighbourFinder,
+                            step_n::Integer;
                             kwargs...)
     return Tuple{Int, Int}[]
 end

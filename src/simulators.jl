@@ -27,9 +27,10 @@ function accelerations(coords, s::Simulation, neighbours, is, js; parallel::Bool
     end
 
     for inter_list in values(s.specific_inter_lists)
-        for inter in inter_list
-            #force!(forces, inter, s)
-        end
+        sparse_forces = force.((coords,), inter_list, (s,))
+        sparse_vecs = SparseVector.(n_atoms, getindex.(sparse_forces, 1),
+                                    getindex.(sparse_forces, 2))
+        forces += Array(sum(sparse_vecs))
     end
 
     return forces ./ getproperty.(s.atoms, :mass)
