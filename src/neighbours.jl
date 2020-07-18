@@ -60,7 +60,7 @@ function find_neighbours(coords,
         sqdist_cutoff = nf.dist_cutoff ^ 2
         n_atoms = length(coords)
         sqdists = square_distance.(is, js, (coords,), box_size)
-        lt = Float64.(sqdists .< sqdist_cutoff)
+        lt = typeof(nf.dist_cutoff).(sqdists .< sqdist_cutoff)
         return lt #.* nf.nb_matrix # Why does this error?
     else
         return current_neighbours

@@ -61,7 +61,7 @@ function simulate!(s::Simulation,
     is = hcat([collect(1:n_atoms) for i in 1:n_atoms]...)
     js = permutedims(is, (2, 1))
     coords, velocities = s.coords, s.velocities
-    neighbours = find_neighbours(coords, s.box_size, zeros(n_atoms, n_atoms),
+    neighbours = find_neighbours(coords, s.box_size, zeros(typeof(s.timestep), n_atoms, n_atoms),
                                     is, js, s.neighbour_finder, 0, parallel=parallel)
     accels_t = accelerations(coords, s, neighbours, is, js, parallel=parallel)
     accels_t_dt = zero(s.coords)
@@ -75,10 +75,10 @@ function simulate!(s::Simulation,
             end
         end
 
-        coords += velocities * s.timestep + 0.5 * accels_t * s.timestep ^ 2
+        coords += velocities * s.timestep + (accels_t * s.timestep ^ 2) / 2
         coords = adjust_bounds_vec.(coords, s.box_size)
         accels_t_dt = accelerations(coords, s, neighbours, is, js, parallel=parallel)
-        velocities += 0.5 * (accels_t + accels_t_dt) * s.timestep
+        velocities += (accels_t + accels_t_dt) * s.timestep / 2
 
         velocities = apply_thermostat!(velocities, s, s.thermostat)
         neighbours = find_neighbours(coords, s.box_size, neighbours,
@@ -110,7 +110,7 @@ function simulate!(s::Simulation,
     is = hcat([collect(1:n_atoms) for i in 1:n_atoms]...)
     js = permutedims(is, (2, 1))
     coords, coords_last = s.coords, s.velocities
-    neighbours = find_neighbours(coords, s.box_size, zeros(n_atoms, n_atoms),
+    neighbours = find_neighbours(coords, s.box_size, zeros(typeof(s.timestep), n_atoms, n_atoms),
                                     is, js, s.neighbour_finder, 0, parallel=parallel)
 
     for step_n in 1:n_steps
