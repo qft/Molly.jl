@@ -241,6 +241,20 @@ function force!(forces,
     return nothing
 end
 
+function force(coords,
+                a::HarmonicAngle,
+                s::Simulation)
+    ba = vector(coords[a.j], coords[a.i], s.box_size)
+    bc = vector(coords[a.j], coords[a.k], s.box_size)
+    pa = normalize(ba × (ba × bc))
+    pc = normalize(-bc × (ba × bc))
+    angle_term = -a.cth * (acosbound(dot(ba, bc) / (norm(ba) * norm(bc))) - a.th0)
+    fa = (angle_term / norm(ba)) * pa
+    fc = (angle_term / norm(bc)) * pc
+    fb = -fa - fc
+    return [a.i, a.j, a.k], [fa, fb, fc]
+end
+
 """
     Torsion(i, j, k, l, f1, f2, f3, f4)
 
