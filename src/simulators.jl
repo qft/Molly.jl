@@ -193,8 +193,7 @@ function relax!(s::Simulation{false},
             s.velocities[i] += removemolar(accels_t[i] + accels_t_dt[i]) * s.timestep / 2
             s.velocities[i] /= relaxationFactor
         end
-
-        apply_thermostat!(s.velocities, s, s.thermostat)
+        
         find_neighbors!(s, s.neighbor_finder, step_n; parallel=parallel)
 
         accels_t = accels_t_dt
