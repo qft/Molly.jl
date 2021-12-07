@@ -156,3 +156,49 @@ end
 function simulate!(s::Simulation; parallel::Bool=true)
     simulate!(s, s.n_steps - first(s.n_steps_made); parallel=parallel)
 end
+
+"""
+    relax!(simulation; parallel=true)
+    relax!(simulation, n_steps; parallel=true)
+    relax!(simulation, simulator, n_steps; parallel=true)
+Very simple energy minimization by adding a decay.
+"""
+function relax!(s::Simulation{false},
+                    ::VelocityVerlet,
+                    n_steps::Integer,
+                    relaxationFactor::Float32=1.1;
+                    parallel::Bool=true)
+    # See https://www.saylor.org/site/wp-content/uploads/2011/06/MA221-6.1.pdf for
+    #   integration algorithm - used shorter second version
+    n_atoms = length(s.coords)
+    find_neighbors!(s, s.neighbor_finder, 0; parallel=parallel)
+    accels_t = accelerations(s; parallel=parallel)
+    accels_t_dt = zero(accels_t)
+
+    @showprogress for step_n in 1:n_steps
+        for logger in values(s.loggers)
+            log_property!(logger, s, step_n)
+        end
+
+        # Update coordinates
+        for i in 1:length(s.coords)
+            s.coords[i] += s.velocities[i] * s.timestep + removemolar(accels_t[i]) * (s.timestep ^ 2) / 2
+            s.coords[i] = wrapcoords.(s.coords[i], s.box_size)
+        end
+
+        accels_t_dt = accelerations(s; parallel=parallel)
+
+        # Update velocities
+        for i in 1:length(s.velocities)
+            s.velocities[i] += removemolar(accels_t[i] + accels_t_dt[i]) * s.timestep / 2
+            s.velocities[i] /= relaxationFactor
+        end
+
+        apply_thermostat!(s.velocities, s, s.thermostat)
+        find_neighbors!(s, s.neighbor_finder, step_n; parallel=parallel)
+
+        accels_t = accels_t_dt
+        s.n_steps_made[1] += 1
+    end
+    return s.coords
+end
