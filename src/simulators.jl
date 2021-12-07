@@ -2,6 +2,7 @@
 
 export
     simulate!,
+    relax!,
     VelocityVerlet,
     VelocityFreeVerlet
 
